@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>دردشة</title>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Arial}
+body{background:#00c853}
+#loginScreen{height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:15px;padding:20px}
+#loginScreen h1{color:white;font-size:40px;margin-bottom:20px}
+#loginScreen input{width:90%;max-width:350px;padding:15px;border:none;border-radius:15px;text-align:center;font-size:18px;outline:none}
+#loginScreen button{width:90%;max-width:350px;padding:15px;background:#004d40;color:white;border:none;border-radius:15px;font-size:18px;font-weight:bold;cursor:pointer}
+#mainScreen{display:none;height:100vh;flex-direction:column;background:white}
+.topbar{background:#00c853;color:white;padding:15px;display:flex;justify-content:space-between;align-items:center}
+.topbar button{background:rgba(255,255,255,0.2);border:none;color:white;padding:8px 12px;border-radius:10px;cursor:pointer;font-size:18px;position:relative}
+#mailDot{position:absolute;top:2px;left:2px;width:10px;height:10px;background:yellow;border-radius:50%;display:none}
+.search{padding:10px;display:flex;gap:5px}
+.search input{flex:1;padding:12px;border:1px solid #ddd;border-radius:10px}
+.search button{background:#00c853;color:white;border:none;padding:0 20px;border-radius:10px}
+#friendsList{flex:1;overflow-y:auto}
+.friend{display:flex;justify-content:space-between;align-items:center;padding:15px;border-bottom:1px solid #eee}
+.friend button{background:#00c853;color:white;border:none;padding:8px 15px;border-radius:15px}
+.add-btn{background:#00c853 !important;font-size:20px !important;width:35px;height:35px;border-radius:50% !important}
+#chatScreen{display:none;height:100vh;flex-direction:column;background:#e5ddd5}
+.chat-top{background:#00c853;color:white;padding:15px;display:flex;gap:10px;align-items:center}
+.chat-top button{background:none;border:none;color:white;font-size:20px}
+#messages{flex:1;padding:10px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+.msg{background:white;padding:10px;border-radius:10px;max-width:80%;align-self:flex-start}
+.msg.me{background:#dcf8c6;align-self:flex-end}
+.msg small{display:block;font-size:10px;color:#888;margin-top:5px}
+.chat-input{display:flex;padding:10px;background:white;gap:5px}
+.chat-input input{flex:1;padding:12px;border:1px solid #ddd;border-radius:20px;outline:none}
+.chat-input button{background:#00c853;color:white;border:none;padding:0 20px;border-radius:20px}
+.popup{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;z-index:99}
+.popup-box{background:white;margin:60px 15px;padding:20px;border-radius:15px;max-height:80vh;overflow-y:auto}
+.popup-box button{padding:10px 15px;border:none;border-radius:10px;color:white;margin:5px;cursor:pointer}
+.req-card{border:1px solid #eee;padding:15px;border-radius:10px;margin-bottom:10px;text-align:center}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+<h1>دردشة</h1>
+<input id="phoneInput" type="text" placeholder="رقمك">
+<input id="nameInput" type="text" placeholder="اسمك">
+<button onclick="login()">دخول</button>
+<p id="loginError" style="color:white;font-weight:bold;text-align:center"></p>
+</div>
+
+<div id="mainScreen">
+<div class="topbar"><button onclick="openSettings()">⚙️</button><b>دردشة</b><button onclick="openRequests()">📩<span id="mailDot"></span></button></div>
+<div class="search"><input id="searchInput" placeholder="دور بالاسم او الرقم" oninput="renderFriends(this.value)"><button onclick="searchFriend()">🔍</button></div>
+<div id="friendsList"></div>
+</div>
+
+<div id="chatScreen">
+<div class="chat-top"><button onclick="backToList()">⬅</button><b id="chatWithName"></b></div>
+<div id="messages"></div>
+<div class="chat-input"><input id="msgInput" placeholder="اكتب رسالة..."><button onclick="sendMessage()">➤</button></div>
+</div>
+
+<div id="requestsBox" class="popup"><div class="popup-box"><h3 style="text-align:center">طلبات الصداقة</h3><div id="requestsList"></div><button onclick="closeRequests()" style="background:#888;width:100%">إغلاق</button></div></div>
+<div id="settingsBox" class="popup"><div class="popup-box" style="text-align:center"><h3>إعداداتي</h3><p style="margin:15px">رقمك: <b id="myNumber"></b></p><p style="margin:15px">اسمك: <b id="myName"></b></p><button onclick="logout()" style="background:#ff3b30">تسجيل خروج</button><button onclick="closeSettings()" style="background:#888">إغلاق</button></div></div>
+
+<script>
+const firebaseConfig = {apiKey:"AIzaSyACJf3cjgRiGaNc0mF5f94j5tWzknU8of0",authDomain:"yalla-tawasol.firebaseapp.com",projectId:"yalla-tawasol",storageBucket:"yalla-tawasol.firebasestorage.app",messagingSenderId:"953556717098",appId:"1:953556717098:web:9ccab4d3849cf1eb467d53"};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+let myPhone = localStorage.getItem("myPhone")||"";
+let myName = localStorage.getItem("myName")||"";
+let myId = localStorage.getItem("myId")||"";
+let friends=[]; let currentChat=""; let currentChatName=""; let unMsg=null; let unReq=null; let unFri=null;
+function getId(phone,name){return phone+"_"+name;}
+function getChatId(a,b){return [a,b].sort().join("__");}
+function startListeners(){
+ if(unReq)unReq(); unReq=db.collection("friendRequests").where("toId","==",myId).onSnapshot(s=>{let d=document.getElementById("mailDot"); if(d)d.style.display=s.empty?"none":"block"; let rb=document.getElementById("requestsBox"); if(rb&&rb.style.display!=="none") renderRequests(s);});
+ if(unFri)unFri(); unFri=db.collection("users").doc(myId).collection("friends").onSnapshot(s=>{friends=s.docs.map(d=>d.data()); let inp=document.getElementById("searchInput"); renderFriends(inp?inp.value:"");});
+}
+async function login(){
+ let phone=document.getElementById("phoneInput").value.trim();
+ let name=document.getElementById("nameInput").value.trim();
+ let err=document.getElementById("loginError");
+ if(phone.length<8){err.innerText="الرقم لازم يكون 8 ارقام على الاقل"; return;}
+ if(!/^[0-9]+$/.test(phone)){err.innerText="الرقم لازم يكون ارقام بس"; return;}
+ if(name.length<2){err.innerText="اكتب اسمك"; return;}
+ let id = getId(phone,name);
+ let savedId = localStorage.getItem("myId")||"";
+ try{
+   let doc = await db.collection("users").doc(id).get();
+   if(doc.exists && savedId !== id){
+     err.innerText="هذا الرقم مسجل بهذا الاسم بالفعل، جرب اسم تاني او رقم تاني";
+     return;
+   }
+   myPhone=phone; myName=name; myId=id;
+   localStorage.setItem("myPhone",myPhone); localStorage.setItem("myName",myName); localStorage.setItem("myId",myId);
+   await db.collection("users").doc(myId).set({phone:myPhone,name:myName,id:myId});
+   showMain(); startListeners();
+ }catch(e){err.innerText="مشكلة في النت: "+e.message;}
+}
+function logout(){localStorage.removeItem("myPhone"); localStorage.removeItem("myName"); localStorage.removeItem("myId"); location.reload();}
+function showMain(){document.getElementById("loginScreen").style.display="none"; document.getElementById("mainScreen").style.display="flex"; document.getElementById("chatScreen").style.display="none"; renderFriends();}
+function searchFriend(){renderFriends(document.getElementById("searchInput").value);}
+function renderFriends(filter=""){
+ let list=document.getElementById("friendsList"); if(!list)return; list.innerHTML="";
+ let f=filter.toLowerCase().trim();
+ let shown=friends.filter(fr=>{if(!f)return true; return fr.phone.includes(f)||fr.name.toLowerCase().includes(f);});
+ if(shown.length===0&&f){
+  if(/^[0-9]+$/.test(f)){list.innerHTML='<div class="friend"><div><b>'+f+'</b><br><span>شخص جديد</span></div><button class="add-btn" onclick="showAddForm(\''+f+'\')">+</button></div><div id="addFormBox" style="display:none;padding:15px;text-align:center"><input id="newFriendName" placeholder="اكتب اسم صاحبك بالظبط زي ما سجل بيه" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;margin-bottom:10px;text-align:center"><button onclick="addFriendWithName(\''+f+'\')" style="background:#00c853;color:white;padding:12px 20px;border-radius:20px">إضافة صديق</button></div>';}
+  else{list.innerHTML='<div style="padding:20px;text-align:center;color:#888">مفيش حد بالاسم ده</div>';}
+  return;
+ }
+ if(shown.length===0&&!f){list.innerHTML='<div style="padding:20px;text-align:center;color:#888">لسه مفيش اصدقاء<br>دور فوق وضيفه</div>'; return;}
+ shown.forEach(fr=>{let d=document.createElement("div"); d.className="friend"; d.innerHTML='<div><b>'+fr.name+'</b><br><span>'+fr.phone+'</span></div><button onclick="openChat(\''+fr.id+'\',\''+fr.name+'\')">دردشة</button>'; list.appendChild(d);});
+}
+function showAddForm(p){document.getElementById("addFormBox").style.display="block";}
+async function addFriendWithName(phone){
+ let name=document.getElementById("newFriendName").value.trim();
+ if(phone===myPhone && name===myName){alert("ده حسابك انت"); return;}
+ if(name.length<2){alert("اكتب اسم صاحبك بالظبط"); return;}
+ let targetId = getId(phone,name);
+ let targetDoc = await db.collection("users").doc(targetId).get();
+ if(!targetDoc.exists){alert("مفيش حد مسجل بالرقم ده والاسم ده، اتأكد من الاسم"); return;}
+ if(friends.find(f=>f.id===targetId)){alert("موجود عندك اصلا"); return;}
+ let old=await db.collection("friendRequests").where("toId","==",targetId).where("fromId","==",myId).get();
+ if(!old.empty){alert("بعتله قبل كده"); return;}
+ await db.collection("friendRequests").add({toId:targetId,toPhone:phone,toName:name,fromId:myId,fromPhone:myPhone,fromName:myName,time:firebase.firestore.FieldValue.serverTimestamp()});
+ document.getElementById("searchInput").value=""; renderFriends(); alert("تم ارسال طلب لـ "+name);
+}
+function openRequests(){document.getElementById("requestsBox").style.display="block"; db.collection("friendRequests").where("toId","==",myId).get().then(renderRequests);}
+function closeRequests(){document.getElementById("requestsBox").style.display="none";}
+function renderRequests(snap){let box=document.getElementById("requestsList"); if(!box)return; if(snap.docs.length===0){box.innerHTML='<p style="text-align:center;color:#888">مفيش طلبات</p>'; return;} box.innerHTML=""; snap.docs.forEach(doc=>{let r=doc.data(); let d=document.createElement("div"); d.className="req-card"; d.innerHTML='<p>'+r.fromName+' ('+r.fromPhone+')<br>يريد ان يكون صديقك</p><button onclick="acceptRequest(\''+doc.id+'\',\''+r.fromId+'\',\''+r.fromPhone+'\',\''+r.fromName+'\')" style="background:#00c853">اضافة</button><button onclick="deleteRequest(\''+doc.id+'\')" style="background:#ff3b30">حذف</button>'; box.appendChild(d);});}
+async function deleteRequest(id){await db.collection("friendRequests").doc(id).delete(); openRequests();}
+async function acceptRequest(id,fpId,fp,fn){await db.collection("users").doc(myId).collection("friends").doc(fpId).set({phone:fp,name:fn,id:fpId}); await db.collection("users").doc(fpId).collection("friends").doc(myId).set({phone:myPhone,name:myName,id:myId}); await db.collection("friendRequests").doc(id).delete(); openRequests(); alert("اتضاف "+fn);}
+function openChat(friendId,name){currentChat=friendId; currentChatName=name; document.getElementById("chatWithName").innerText=name; document.getElementById("mainScreen").style.display="none"; document.getElementById("chatScreen").style.display="flex"; if(unMsg)unMsg(); let chatId=getChatId(myId,friendId); unMsg=db.collection("chats").doc(chatId).collection("messages").orderBy("time").onSnapshot(snap=>{let box=document.getElementById("messages"); box.innerHTML=""; snap.forEach(doc=>{let m=doc.data(); let d=document.createElement("div"); d.className="msg"+(m.from===myId?" me":""); d.innerHTML=m.text+"<small>"+(m.from===myId?"أنت":m.fromName)+"</small>"; box.appendChild(d);}); box.scrollTop=box.scrollHeight;});}
+function backToList(){if(unMsg)unMsg(); document.getElementById("chatScreen").style.display="none"; document.getElementById("mainScreen").style.display="flex"; renderFriends();}
+async function sendMessage(){let inp=document.getElementById("msgInput"); let t=inp.value.trim(); if(!t||!currentChat)return; let chatId=getChatId(myId,currentChat); await db.collection("chats").doc(chatId).collection("messages").add({from:myId,fromName:myName,text:t,time:firebase.firestore.FieldValue.serverTimestamp()}); inp.value="";}
+function openSettings(){document.getElementById("myNumber").innerText=myPhone; document.getElementById("myName").innerText=myName; document.getElementById("settingsBox").style.display="block";}
+function closeSettings(){document.getElementById("settingsBox").style.display="none";}
+document.getElementById("msgInput").addEventListener("keypress",e=>{if(e.key==="Enter")sendMessage();});
+if(myPhone&&myName&&myId){showMain(); startListeners();}
+</script>
+</body>
+</html>
